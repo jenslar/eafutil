@@ -27,8 +27,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         Some(s) => match Regex::new(&s) {
             Ok(rx) => Some(rx),
             Err(err) => {
-                println!("(!) Regex error: {err}");
-                std::process::exit(1)
+                let msg = format!("(!) Regex error: {err}");
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         }
         None => None
@@ -37,8 +37,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     let eaf = match Eaf::read(eaf_path) {
         Ok(f) => f,
         Err(err) => {
-            println!("(!) Failed to parse '{}': {err}", eaf_path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to parse '{}': {err}", eaf_path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
@@ -47,8 +47,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             let tier = match select_tier(&eaf, false) {
                 Ok(t) => t,
                 Err(err) => {
-                    println!("(!) Failed to extract tier: {err}");
-                    std::process::exit(1)
+                    let msg = format!("(!) Failed to extract tier: {err}");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             };
             eaf.ngram(size, delete_regex.as_ref(), Scope::Annotation(Some(tier.tier_id)))
@@ -57,8 +57,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             let tier = match select_tier(&eaf, false) {
                 Ok(t) => t,
                 Err(err) => {
-                    println!("(!) Failed to extract tier: {err}");
-                    std::process::exit(1)
+                    let msg = format!("(!) Failed to extract tier: {err}");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             };
             eaf.ngram(size, delete_regex.as_ref(), Scope::Tier(Some(tier.tier_id)))
@@ -67,8 +67,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             eaf.ngram(size, delete_regex.as_ref(), Scope::File)
         },
         s => {
-            println!("(!) '{s}' is not a valid scope. Choose one of 'annotation', 'tier', 'file'.");
-            std::process::exit(1)
+            let msg = format!("(!) '{s}' is not a valid scope. Choose one of 'annotation', 'tier', 'file'.");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 

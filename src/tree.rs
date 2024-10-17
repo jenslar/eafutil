@@ -1,9 +1,11 @@
+//! NOT YET IMPLEMENTED
+
 use std::{
     path::PathBuf,
     collections::HashMap
 };
 
-use eaf_rs::eaf::Eaf;
+use eaf_rs::{eaf::Eaf, Tier};
 
 #[derive(Debug, Default)]
 /// HashMap<TIER_ID, CHILD_TIER_IDs>
@@ -35,6 +37,17 @@ impl Node {
 // }
 
 impl TierTree {
+    fn new2(eaf: &Eaf) {
+        let mut seen: Vec<&str> = Vec::new();
+        let depth = 0;
+
+        for tier in eaf.main_tiers().iter() {
+            for child in eaf.child_tiers(&tier.tier_id).iter() {
+                
+            }
+        }
+    }
+
     fn new(eaf: &Eaf) -> Self {
         // Get all tier IDs, incl ref tiers, since these may in turn have ref tiers
         let mut tiers: HashMap<String, Vec<String>> = eaf.tiers.iter()

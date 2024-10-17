@@ -19,24 +19,24 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     let mut eaf = match Eaf::read(path) {
         Ok(f) => f,
         Err(err) => {
-            println!("(!) Failed to parse '{}': {err}", path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to parse '{}': {err}", path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
     match eaf.shift(shift, false) {
         Ok(_) => (),
         Err(err) => {
-            println!("(!) Failed to shift '{}' {shift} ms: {err}", path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to shift '{}' {shift} ms: {err}", path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     }
 
     let eaf_str = match eaf.to_string(Some(4)) {
         Ok(s) => s,
         Err(err) => {
-            println!("(!) Failed to serialize '{}': {err}", path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to serialize '{}': {err}", path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
@@ -45,22 +45,22 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             let mut file_name = match name.to_str().map(String::from) {
                 Some(n) => n,
                 None => {
-                    println!("(!) Failed to extract file name from '{}'", path.display());
-                    std::process::exit(1)
+                    let msg = format!("(!) Failed to extract file name from '{}'", path.display());
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             };
             file_name.push_str(&format!("_{shift}.eaf"));
             path.with_file_name(file_name)
         },
         None => {
-            println!("(!) Failed to extract file name from '{}'", path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to extract file name from '{}'", path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
     
     if let Err(err) = writefile(&eaf_str.as_bytes(), &eaf_path) {
-        println!("(!) Failed to write '{}': {err}", eaf_path.display());
-        std::process::exit(1)
+        let msg = format!("(!) Failed to write '{}': {err}", eaf_path.display());
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
     };
 
     Ok(())

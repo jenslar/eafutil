@@ -23,8 +23,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         (Some(path), None) => vec!(path.to_owned()),
         (None, Some(dir)) => {
             if Path::new(dir).is_file() {
-                println!("(!) {} is a file.", dir.display());
-                std::process::exit(1)
+                let msg = format!("(!) {} is a file.", dir.display());
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
             let mut dirs: Vec<PathBuf> = Vec::new();
             for occurence in WalkDir::new(dir) {
@@ -49,8 +49,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         },
         // clap ensures only one, so _ should never match
         _ => {
-            println!("(!) Only one of 'eaf' and 'dir' can be specified.");
-            std::process::exit(1)
+            let msg = format!("(!) Only one of 'eaf' and 'dir' can be specified.");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
@@ -59,8 +59,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         let mut eaf = match Eaf::read(path) {
             Ok(f) => f,
             Err(err) => {
-                println!("(!) Failed to parse '{}': {err}", path.display());
-                std::process::exit(1)
+                let msg = format!("(!) Failed to parse '{}': {err}", path.display());
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
 
@@ -78,8 +78,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
                 },
                 // clap ensures only one, so _ should never match
                 _ => {
-                    println!("(!) Only one of 'add', 'remove' can be specified.");
-                    std::process::exit(1)
+                    let msg = format!("(!) Only one of 'add', 'remove' can be specified.");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             }
         } else {
@@ -94,8 +94,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
                 },
                 // clap ensures only one, so _ should never match
                 _ => {
-                    println!("(!) Only one of 'scrub', 'filename-only' can be specified.");
-                    std::process::exit(1)
+                    let msg = format!("(!) Only one of 'scrub', 'filename-only' can be specified.");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             }
         }
@@ -104,21 +104,21 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         let eaf_str = match eaf.to_string(Some(4)) {
             Ok(s) => s,
             Err(err) => {
-                println!("(!) Failed to serialize {}: {err}", path.display());
-                std::process::exit(1)
+                let msg = format!("(!) Failed to serialize {}: {err}", path.display());
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
         let eaf_outpath = append_file_name(path, filename_suffix);
         
         if let Err(err) = writefile(&eaf_str.as_bytes(), &eaf_outpath) {
-            println!("(!) Failed to write '{}': {err}", eaf_outpath.display());
-            std::process::exit(1)
+            let msg = format!("(!) Failed to write '{}': {err}", eaf_outpath.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
 
         println!("Resulting media paths in '{}':", path.display());
         for (i, paths) in eaf.media_paths().iter().enumerate() {
-            println!("{:2}.  Media URL:          {}", i+1, paths.0);
-            println!("     Relative media URL: {}", paths.1.as_deref().unwrap_or("Not set"));
+            println!("{:2}.  Media URL:          {}", i+1, paths.0.display());
+            println!("     Relative media URL: {}", paths.1.as_deref().unwrap_or(Path::new("")).display());
         }
     }
 

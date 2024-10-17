@@ -1,18 +1,18 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Arg, Command, ArgAction};
 
 mod csv2eaf;
+mod eaf2csv;
 mod shift;
-mod filter;
-mod merge;
+mod extract;
 mod search;
+mod ffmpeg;
 mod tokens;
 mod ngram;
 mod compare;
 mod media;
 mod clips;
-// mod inspect_old;
 mod inspect;
 mod tree;
 mod eaf;
@@ -20,11 +20,15 @@ mod files;
 mod text;
 mod json;
 mod color;
+mod whisper;
+mod whisper2eaf;
+mod merge;
+mod edit;
 
 
-fn main() -> std::io::Result<()> {
+fn main() -> ExitCode {
     let args = Command::new("eafutil")
-        .version("0.5")
+        .version("0.6")
         .author("Jens Larsson")
         .arg_required_else_help(true)
         .term_width(90)
@@ -35,27 +39,27 @@ eafutil <SUB-COMMAND> --help
 eafutil csv2eaf --help
 
 - csv2eaf: Convert a CSV-file to an ELAN-file.
+- eaf2csv: Convert a CSV-file to an ELAN-file.
 - shift:   Shift all annotations in an ELAN-file in time.
-- filter:  Filter a time span of an ELAN-file into a new ELAN-file.
+- extract: Extract a cross cut of ELAN-file into a new ELAN-file.
 - tokens:  Extract the word/token distribution from all annotations.
 - search:  Search annotations in one or more ELAN-files.
 - media:   Add or remove media paths.
-- inspect: Get an overview of an ELAN-file. Number of tiers, annotations...
-- TODO merge: Merge ELAN-files.")
-        // .setting(AppSettings::ArgRequiredElseHelp)
+- inspect: Get an overview of an ELAN-file. Number of tiers, annotations, etc.
+")
 
-        // CSV2EAF: Generate an EAF from a CSV-file.
         .subcommand(Command::new("csv2eaf")
             .about("Convert a CSV-file containing annotation values and time stamps (annotation boundaries) to an ELAN-file. Requires headers and columns representing start, end, and annotation value, respectively. Annotations and time stamps should be listed in chronological order.
 
 Accepted time formats in CSV-file:
-- HH:MM:SS        hours:minutes:seconds                 00:02:54
-- HH:MM:SS.fff    hours:minutes:seconds.sub-seconds     00:02:54.456
-- milliseconds    unsigned integer                      174456
+- HH:MM:SS              hours:minutes:seconds               00:02:54
+- HH:MM:SS.fff          hours:minutes:seconds.sub-seconds   00:02:54.456
+- milliseconds          unsigned integer                    174456
+- seconds.sub-seconds   float                               13.235
 
 ELAN defults to milliseconds internally.")
             .visible_alias("c2e")
-            
+
             .arg(Arg::new("csv")
                 .help("Path to CSV-file.")
                 .long("csv")
@@ -75,14 +79,14 @@ ELAN defults to milliseconds internally.")
                 .help("Name of column containing annotation start time stamps as 'HH:MM:SS', 'HH:MM:SS.fff', or a millisecond value.")
                 .long("start")
                 .short('s')
-                .required_unless_present("debug")
+                .required_unless_present_any(["debug", "rttm"])
                 .default_value("start") // deafult csv header for annotation start time
             )
             .arg(Arg::new("end")
                 .help("Name of column containing annotation end time stamps as 'HH:MM:SS', 'HH:MM:SS.fff', or a millisecond value.")
                 .long("end")
                 .short('e')
-                .required_unless_present("debug")
+                .required_unless_present_any(["debug", "rttm"])
                 .default_value("end") // deafult csv header for annotation end time
             )
             .arg(Arg::new("offset")
@@ -96,46 +100,156 @@ ELAN defults to milliseconds internally.")
                 .long("values")
                 .short('v')
                 // .takes_value(true)
-                .required_unless_present("debug")
-                .default_value("values") // deafult csv header for annotation value
+                .required_unless_present_any(["debug", "rttm"])
+                .default_value("value") // deafult csv header for annotation value
             )
             .arg(Arg::new("ref-values")
                 .help("Name of columns containing referred tier annotation values. These must not exceed the number of rows in the 'values', 'start', 'end' columns. Multiple values can be specified, e.g.: '--refs col1 col2 col3', resulting in multiple referred tiers.")
                 .long("refs")
                 .short('r')
-                // .action(clap::ArgAction::)
-                .num_args(0..) // TODO test that this actually works
-                // .multiple_values(true)
-                // .takes_value(true)
+                .num_args(0..)
             )
             // .arg(Arg::new("no-headers")
             //     .help("Use if the CSV-file has no headers on the first row.")
             //     .long("no-headers")
             //     .short('n')
             // )
+            .arg(Arg::new("tier-id")
+                .help("Specify column with tier ID, and generate EAF with multiple tier if more than one ID present.")
+                .long("tier")
+                .value_parser(clap::value_parser!(String))
+            )
+            .arg(Arg::new("rttm")
+                .help("Parses the CSV-file as a Rich Transcription Time Marked (RTTM) file.")
+                .long("rttm")
+                .action(ArgAction::SetTrue)
+            )
             .arg(Arg::new("debug")
                 .help("Prints the all content in the CSV-file in debug form to track down e.g. columns with missing headers.")
                 .long("debug")
                 .action(ArgAction::SetTrue)
             )
-            .arg(Arg::new("video")
-                .help("Video file to link in ELAN-file. Optional.")
-                .long("video")
+            .arg(Arg::new("media") // !!! should take multiple values, e.g. video + corresponding audio track
+                .help("Media file to link in ELAN-file. Optional.")
+                .long("media")
+                .num_args(1..)
                 .value_parser(clap::value_parser!(PathBuf))
                 // .takes_value(true)
             )
+            // .arg(Arg::new("audio")
+            //     .help("Audio file/s to link in ELAN-file. Optional.")
+            //     .long("audio")
+            //     .num_args(1..)
+            //     .value_parser(clap::value_parser!(PathBuf))
+            // )
+            // .arg(Arg::new("video")
+            //     .help("Video file/s to link in ELAN-file. Optional.")
+            //     .long("video")
+            //     .num_args(1..)
+            //     .value_parser(clap::value_parser!(PathBuf))
+            // )
             .arg(Arg::new("eaf")
                 .help("If specified, an existing ELAN-file will be modified with new tiers from the CSV-file.")
                 .long("eaf")
                 .value_parser(clap::value_parser!(PathBuf))
                 // .takes_value(true)
-            ) 
+            )
         )
 
-        // FILTER: Filter time span in EAF.
-        .subcommand(Command::new("filter")
-            .about("Filters a section of the ELAN-file via start/end time values in milliseconds. Optionally use the time span of an annotation in a tier. If no start and end time is ")
-            .visible_alias("f")
+        .subcommand(Command::new("whisper2eaf")
+            .about("Generates an EAF-file from a Whisper JSON-file (https://github.com/linto-ai/whisper-timestamped).
+Accepted Whisper JSON-format are either original Whisper JSON-files with with word level timestamps set, or Whisper Timestamped JSON.")
+            .visible_alias("w2e")
+            .arg(Arg::new("json")
+                .help("Whisper JSON-file with word level timestamps to convert to EAF.")
+                .long("json")
+                .short('j')
+                .required_unless_present("dir")
+                .value_parser(clap::value_parser!(PathBuf)))
+            .arg(Arg::new("media")
+                .help("One or more media files to link.")
+                .long("media")
+                .short('m')
+                .num_args(0..)
+                .value_parser(clap::value_parser!(PathBuf)))
+            .arg(Arg::new("dir")
+                .help("One or more directory with Whisper or Whisper Timestamped JSON-files to convert to EAF.")
+                .long("dir")
+                .short('d')
+                // .num_args(1..)
+                .required_unless_present("json")
+                .value_parser(clap::value_parser!(PathBuf)))
+            .arg(Arg::new("clips")
+                .help("JSON-file with clip timestamps corresponding to position in original media.")
+                .long("clips")
+                .short('c')
+                .requires("dir")
+                .value_parser(clap::value_parser!(PathBuf)))
+            .arg(Arg::new("no-speech")
+                .help("No speech threshold. Discard any segment with a no-speech probability above threshold (0.0 - 1.0).")
+                .long("no-speech")
+                .short('n')
+                .value_parser(clap::value_parser!(f64))
+                .default_value("1.0"))
+            .arg(Arg::new("join")
+                .help("Joins whisper timestamped JSON files in 'dir' before generating EAF.")
+                .long("join")
+                .requires("dir")
+                .action(ArgAction::SetTrue))
+            .arg(Arg::new("prefix-tiers")
+                .help("Prefixes tier IDs with JSON clips file name.")
+                .long("prefix-tiers")
+                .short('p')
+                .action(ArgAction::SetTrue))
+        )
+
+        .subcommand(Command::new("eaf2csv")
+            .about("Generates a CSV file from the specified EAF.")
+            .visible_alias("e2c")
+            .arg(Arg::new("eaf")
+                .help("ELAN-file to export to CSV.")
+                .long("eaf")
+                .short('e')
+                .required(true)
+                .value_parser(clap::value_parser!(PathBuf)))
+            .arg(Arg::new("include")
+                .help("Customize which values and attributes to include.")
+                .long("include")
+                .short('i')
+                .num_args(1..)
+                .value_parser([
+                    "ti", "tier-id",
+                    "tt", "tier-type",
+                    "tl", "tier-length", // number of anntations in tier
+                    "tpnt", "tier-parent", // parent tier ID
+                    "ta", "tier-annotator", // number of anntations in tier
+                    "tprt", "tier-participant", // number of anntations in tier
+                    "ams", "annotation-time-ms", // annotation start, end, duration in ms
+                    "ahms", "annotation-time-hms", // annotation start, end, duration in hh:mm:ss.fff
+                    "av", "annotation-value",
+                    "ai", "annotation-id", // internal annotation ID
+                ])
+                .value_parser(clap::value_parser!(String)))
+            .arg(Arg::new("delimiter")
+                .help("Delimiter used in CSV-file.")
+                .long("delimiter")
+                .short('d')
+                // .possible_values(&["tab", "comma", "semicolon"])
+                .value_parser(["tab", "comma", "semicolon"])
+                .default_value("comma"))
+            .arg(Arg::new("timeline")
+                .help("Generates a timeline with one column per speaker.")
+                .long("timeline")
+                .action(ArgAction::SetTrue))
+            .arg(Arg::new("interactive")
+                .help("Interactively choose which values to export.")
+                .long("interactive")
+                .action(ArgAction::SetTrue))
+        )
+
+        .subcommand(Command::new("extract")
+            .about("Extracts a section of the ELAN-file. Optionally use the time span of an annotation in a tier. If no start and end time is ")
+            .visible_alias("e")
             .arg(Arg::new("eaf")
                 .help("ELAN-file to process.")
                 .long("eaf")
@@ -153,6 +267,11 @@ ELAN defults to milliseconds internally.")
                 .long("end")
                 .value_parser(clap::value_parser!(i64))
             )
+            .arg(Arg::new("tier-prefix")
+                .help("Prefix to add to all tier IDs, before export.")
+                .long("prefix")
+                .value_parser(clap::value_parser!(String))
+            )
             .arg(Arg::new("process-media")
                 .help("Extract and link corresponding media clips. Requires FFmpeg.")
                 .long("media")
@@ -165,9 +284,8 @@ ELAN defults to milliseconds internally.")
                 .short('f')
                 .default_value(if cfg!(windows) {"ffmpeg.exe"} else {"ffmpeg"})
             )
-        )   
+        )
 
-        // SHIFT: Shift all annotations according to specified millisecond value.
         .subcommand(Command::new("shift")
             .about("Shifts all annotations forward or backward (use a negative millisecond value) in an ELAN-file according to the specified millisecond value.")
             .visible_alias("sh")
@@ -188,32 +306,6 @@ ELAN defults to milliseconds internally.")
             )
         )
 
-        // MERGE: Merge two ELAN-files.
-        .subcommand(Command::new("merge")
-            .hide(true) // not yet ready
-            .about("Merges two ELAN-files, presuming both link the same media source. This is done with a few caveats. Time slots with no time value set will be discarded. If merging causes annotations to overlap on the same tier, the process will be aborted by default, but can be overriden via the 'join' flag. This will instead join overlapping annotations.
-
-Example:
-  eafutil merge --eaf ELANFILE_1.eaf --eaf ELANFILE_2.eaf")
-            .visible_alias("mg")
-            .arg(Arg::new("eaf")
-                .help("ELAN-file to merge. This option can be used multiple times.")
-                .long("eaf")
-                .short('e')
-                // .takes_value(true)
-                .action(clap::ArgAction::Append) // TODO ensure to use get_many
-                // .multiple_occurrences(true)
-            )
-            .arg(Arg::new("join-overlaps")
-                .help("Joins overlapping annotations instead of aborting.")
-                .long("join")
-                .short('j')
-                .action(clap::ArgAction::Append) // TODO ensure to use get_many
-                // .multiple_occurrences(true)
-            )
-        )
-
-        // FIND: Find annotation value. Regex possible
         .subcommand(Command::new("search")
             .about("Search for a pattern in annotation values (regular expressions possible). Specify either in a single file, or a directory for multi-file search.")
             .visible_alias("s")
@@ -271,7 +363,6 @@ Example:
             )
         )
 
-        // TOKENS: Extract all tokens/words
         .subcommand(Command::new("tokens")
             .about("Extract all words/tokens in annnotation values. Only works on whitespace delimited scripts.")
             .visible_alias("t")
@@ -340,7 +431,6 @@ Example:
             )
         )
 
-        // WORDS: Extract all words
         .subcommand(Command::new("ngram")
             .about("Simple n-gram distribution.")
             .visible_alias("n")
@@ -385,7 +475,6 @@ Example:
             )
         )
 
-        // MEDIA
         .subcommand(Command::new("media")
             .about("Add or remove media to or from the specified ELAN-file. Lists linked media files if a single ELAN-file is specified. Alternatively remove specific media file or all linked media.")
             .visible_alias("md")
@@ -445,7 +534,6 @@ Example:
             )
         )
 
-        // CLIPS
         .subcommand(Command::new("clips")
             .about(r"Generate media clips from annotation boundaries in selected tier. Requires ffmpeg.")
             .visible_alias("c")
@@ -473,8 +561,12 @@ Example:
             )
             .arg(Arg::new("annotation-id")
                 .help("Include internal annotation ID in output filename, e.g. 'a43'.")
-                .long("id")
-                .short('i')
+                .long("a-id")
+                .action(clap::ArgAction::SetTrue)
+            )
+            .arg(Arg::new("tier-id")
+                .help("Include tier ID in output filename.")
+                .long("t-id")
                 .action(clap::ArgAction::SetTrue)
             )
             .arg(Arg::new("annotation-value")
@@ -497,9 +589,21 @@ Example:
                 .value_parser(clap::value_parser!(usize))
                 .default_value("20")
             )
+            .arg(Arg::new("min-duration")
+                .help("Min duration length in milliseconds. Annotations below this value will be ignored.")
+                .long("min-duration")
+                .alias("md")
+                .value_parser(clap::value_parser!(i64))
+                // .default_value("20")
+            )
             .arg(Arg::new("ascii-path")
                 .help("Replace non-ASCII characters with '_' in output filename.")
                 .long("ascii")
+                .action(clap::ArgAction::SetTrue)
+            )
+            .arg(Arg::new("all")
+                .help("Extract clips for all annoations on all tiers.")
+                .long("all")
                 .action(clap::ArgAction::SetTrue)
             )
             .arg(Arg::new("ffmpeg")
@@ -521,7 +625,38 @@ Example:
             // )
         )
 
-        // INSPECT
+        .subcommand(Command::new("merge")
+            .about("Merge EAF-files.")
+            .visible_alias("mg")
+            .arg(Arg::new("eaf")
+                .help("ELAN-files to merge.")
+                .long("eaf")
+                .short('e')
+                .value_parser(clap::value_parser!(PathBuf))
+                .num_args(0..)
+                .required_unless_present("dir")
+            )
+            .arg(Arg::new("dir")
+                .help("Directory containing ELAN-files to merge. Not recursive.")
+                .long("dir")
+                .short('d')
+                .value_parser(clap::value_parser!(PathBuf))
+            )
+            .arg(Arg::new("media")
+                .help("One or more media files to link.")
+                .long("media")
+                .short('m')
+                .num_args(0..)
+                .value_parser(clap::value_parser!(PathBuf))
+            )
+            .arg(Arg::new("prefix-tiers")
+                .help("Prefix tier IDs with input file names.")
+                .long("prefix-tiers")
+                .short('p')
+                .action(clap::ArgAction::SetTrue)
+            )
+        )
+
         .subcommand(Command::new("inspect")
             .about("Print an overview of the ELAN-file, with the option to print annotations in a specific tier.")
             .visible_alias("i")
@@ -531,12 +666,23 @@ Example:
                 .short('e')
                 .value_parser(clap::value_parser!(PathBuf))
                 // .takes_value(true)
-                .required_unless_present("pfsx")
+                .required_unless_present_any(["pfsx", "tsconf", "textgrid"])
             )
             .arg(Arg::new("pfsx")
-                .help("ELAN-file.")
+                .help("ELAN preferences file.")
                 .long("pfsx")
                 .short('p')
+                .value_parser(clap::value_parser!(PathBuf))
+            )
+            .arg(Arg::new("tsconf")
+                .help("ELAN time series configuration file.")
+                .long("tsconf")
+                .short('t')
+                .value_parser(clap::value_parser!(PathBuf))
+            )
+            .arg(Arg::new("textgrid")
+                .help("Praat textgrid file.")
+                .long("textgrid")
                 .value_parser(clap::value_parser!(PathBuf))
             )
             .arg(Arg::new("annotations")
@@ -552,14 +698,13 @@ Example:
                 .action(clap::ArgAction::SetTrue)
             )
             .arg(Arg::new("debug")
-                .help("Print internal representation of EAF..")
+                .help("Print internal representation of EAF.")
                 .long("debug")
                 .short('d')
                 .action(clap::ArgAction::SetTrue)
             )
         )
 
-        // COMPARE
         .subcommand(Command::new("compare")
             .about("Compare annotation values of two tiers.")
             .visible_alias("cmp")
@@ -595,7 +740,57 @@ Example:
             )
         )
 
-        // JSON
+        .subcommand(Command::new("edit")
+            .about("Edit tier attributes, strip referred tiers, generate an ELAN template file (ETF) etc.
+            Specify a tier ID to only affect that tier.")
+            .arg(Arg::new("eaf")
+                .help("ELAN-file.")
+                .long("eaf")
+                .short('e')
+                .value_parser(clap::value_parser!(PathBuf))
+                .required_unless_present("dir")
+            )
+            .arg(Arg::new("dir")
+                .help("Directory with ELAN-files to edit. Not recursive.")
+                .long("dir")
+                .short('d')
+                .value_parser(clap::value_parser!(PathBuf))
+                .required_unless_present("eaf")
+            )
+            .arg(Arg::new("tier-id")
+                .help("Tier to edit.")
+                .long("tier")
+                .short('t')
+                .value_parser(clap::value_parser!(String))
+            )
+            .arg(Arg::new("strip-referred")
+                .help("Strip all referred tiers.")
+                .long("simple")
+                .short('s')
+                .action(clap::ArgAction::SetTrue)
+            )
+            .arg(Arg::new("set-annotator")
+                .help("Set annotator attribute for tier/s.")
+                .long("annotator")
+                .value_parser(clap::value_parser!(String))
+            )
+            .arg(Arg::new("prefix")
+                .help("Add prefix to tier IDs.")
+                .long("prefix")
+                .value_parser(clap::value_parser!(String))
+            )
+            .arg(Arg::new("suffix")
+                .help("Add suffix to tier IDs.")
+                .long("suffix")
+                .value_parser(clap::value_parser!(String))
+            )
+            .arg(Arg::new("etf")
+                .help("Generate an ELAN template file (ETF) from specified ELAN file.")
+                .long("etf")
+                .action(clap::ArgAction::SetTrue)
+            )
+        )
+
         .subcommand(Command::new("json")
             .about("Generate a JSON-file from the specified ELAN-file. If the 'simple' flag is set, the ELAN-file will be exported as JSON in a simplified form, containing only tiers and their annotation values with start and end time stamps.")
             .visible_alias("j")
@@ -615,7 +810,6 @@ Example:
             )
         )
 
-        // TIER TREE
         .subcommand(Command::new("tree")
             .about("Show tier tree structure.")
             .arg(Arg::new("eaf")
@@ -627,101 +821,158 @@ Example:
                 .required(true)
             )
         )
-
         .get_matches();
 
-    // 
+    //
     // CSV2EAF, generate eaf from csv
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("csv2eaf") {
-        csv2eaf::run(&arg_matches)?;
+        if let Err(err) = csv2eaf::run(&arg_matches) {
+            eprintln!("(!) 'csv2eaf' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
+    // WHISPER2EAF, generate eaf from whisper timestamped json
+    //
+    if let Some(arg_matches) = args.subcommand_matches("whisper2eaf") {
+        if let Err(err) = whisper2eaf::run(&arg_matches) {
+            eprintln!("(!) 'whisper2eaf' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
+    }
+
+    //
+    // EAF2CSV2EAF, generate csv from eaf
+    //
+    if let Some(arg_matches) = args.subcommand_matches("eaf2csv") {
+        if let Err(err) = eaf2csv::run(&arg_matches) {
+            eprintln!("(!) 'eaf2eaf' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
+    }
+
+    //
     // SHIFT, shift eaf specified milliseconds
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("shift") {
-        shift::run(&arg_matches)?;
+        if let Err(err) = shift::run(&arg_matches) {
+            eprintln!("(!) 'shift' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
-    // FILTER, filter eaf time span, generate new eaf
-    // 
-    if let Some(arg_matches) = args.subcommand_matches("filter") {
-        filter::run(&arg_matches)?;
+    //
+    // EXTRACT, extract eaf time span, generate new eaf
+    //
+    if let Some(arg_matches) = args.subcommand_matches("extract") {
+        if let Err(err) = extract::run(&arg_matches) {
+            eprintln!("(!) 'extract' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // MERGE, merge two eaf-files
     // NOT IMPLEMENTED
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("merge") {
-        merge::run(&arg_matches)?;
+        if let Err(err) = merge::run(&arg_matches) {
+            eprintln!("(!) 'merge' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // SEARCH, search for annotation values in one or more eaf-file.
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("search") {
-        search::run(&arg_matches)?;
+        if let Err(err) = search::run(&arg_matches) {
+            eprintln!("(!) 'search' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // TOKENS/WORDS, extracts/lists all tokens/words present in the annotations
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("tokens") {
-        tokens::run(&arg_matches)?;
+        if let Err(err) = tokens::run(&arg_matches) {
+            eprintln!("(!) 'tokens' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // NGRAM
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("ngram") {
-        ngram::run(&arg_matches)?;
+        if let Err(err) = ngram::run(&arg_matches) {
+            eprintln!("(!) 'ngram' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // MEDIA, add or remove linked media files
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("media") {
-        media::run(&arg_matches)?;
+        if let Err(err) = media::run(&arg_matches) {
+            eprintln!("(!) 'media' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // CLIPS, extract media clips from annotation boundaries
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("clips") {
-        clips::run(&arg_matches)?;
+        if let Err(err) = clips::run(&arg_matches) {
+            eprintln!("(!) 'clips' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // INSPECT, general overview of EAF
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("inspect") {
-        // inspect_old::run(&arg_matches)?;
-        inspect::eaf::run(&arg_matches)?;
+        if let Err(err) = inspect::run(&arg_matches) {
+            eprintln!("(!) 'inspect' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // COMPARE, compare two tiers in EAF
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("compare") {
-        compare::run(&arg_matches)?;
+        if let Err(err) = compare::run(&arg_matches) {
+            eprintln!("(!) 'compare' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // JSON, generate JSON from EAF
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("json") {
-        json::run(&arg_matches)?;
+        if let Err(err) = json::run(&arg_matches) {
+            eprintln!("(!) 'json' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    // 
+    //
     // TREE, VISUALIZE TIER HIERARCHY
-    // 
+    //
     if let Some(arg_matches) = args.subcommand_matches("tree") {
-        tree::run(&arg_matches)?;
+        if let Err(err) = tree::run(&arg_matches) {
+            eprintln!("(!) 'tree' exited with error: {err}");
+            return ExitCode::FAILURE
+        }
     }
 
-    Ok(())
+    ExitCode::SUCCESS
 }

@@ -4,41 +4,35 @@
 
 use std::path::PathBuf;
 
-use eaf_rs::{eaf::{Eaf, controlled_vocabulary::CVType}, Pfsx};
+use eaf_rs::eaf::{Eaf, controlled_vocabulary::CVType};
 
 use crate::{
     eaf::select_tier,
     text::process_string,
-    files::acknowledge
+    files::confirm
 };
 
 // Inspect EAF, main
 pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     let eaf_path = args.get_one::<PathBuf>("eaf"); // clap ensures value
-    let pfsx_path = args.get_one::<PathBuf>("pfsx"); // clap ensures value
     let list_annotations = *args.get_one::<bool>("annotations").unwrap();
     let verbose = *args.get_one::<bool>("verbose").unwrap();
     let debug = *args.get_one::<bool>("debug").unwrap();
 
-    if let Some(path) = pfsx_path {
-        let pfsx = Pfsx::read(path)?;
-        println!("{pfsx:#?}");
-        std::process::exit(0)
-    }
-
     let eaf_path = match eaf_path {
         Some(p) => p,
         None => {
-            eprintln!("(!) No EAF file specified.");
-            std::process::exit(1)
+            let msg = "No EAF file specified.";
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            
         }
     };
 
     let eaf = match Eaf::read(eaf_path) {
         Ok(f) => f,
         Err(err) => {
-            println!("(!) Failed to parse '{}': {err}", eaf_path.display());
-            std::process::exit(1)
+            let msg = format!("Failed to parse '{}': {err}", eaf_path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
@@ -46,23 +40,23 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
 
     if debug {
         println!("{eaf:#?}");
-        std::process::exit(0)
+        return Ok(())
     }
 
     if list_annotations {
         let tier = match select_tier(&eaf, false) {
             Ok(t) => t,
             Err(err) => {
-                println!("(!) Failed to extract tier: {err}");
-                std::process::exit(1)
+                let msg = format!("Failed to extract tier: {err}");
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
 
         // let user choose wheter to list large tiers
         if tier.len() > 40 {
-            if !acknowledge(&format!("The tier '{}' has {} annotations. List all?", tier.tier_id, tier.len()))? {
-                println!("(!) Aborted process.");
-                std::process::exit(1)
+            if !confirm(&format!("The tier '{}' has {} annotations. List all?", tier.tier_id, tier.len()))? {
+                let msg = "Aborted process.";
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         }
 
@@ -74,7 +68,7 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             }
         }
 
-        std::process::exit(0)
+        return Ok(())
     }
 
     if verbose {
@@ -86,7 +80,25 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
         println!("[ Media ]");
         
         for (i, media) in eaf.header.media_descriptor.iter().enumerate() {
-            println!("  {:2}. {}\n      {}", i+1, media.media_url, media.relative_media_url.as_deref().unwrap_or("None"))
+            println!("  {:2}. {}\n      {}\n      {}\n      {}",
+                i+1,
+                media.media_url(),
+                media.relative_media_url().unwrap_or("None"),
+                media.extracted_from.as_deref().unwrap_or("None"),
+                media.mime_type,
+            )
+        }
+
+        println!("[ Linked files ]");
+
+        for (i, file) in eaf.header.linked_file_descriptor.iter().enumerate() {
+            println!("  {:2}. {}\n      {}\n      {}\n      {}",
+                i+1,
+                file.link_url,
+                file.relative_link_url.as_deref().unwrap_or("None"),
+                file.associated_with.as_deref().unwrap_or("None"),
+                file.mime_type,
+            )
         }
 
         println!("[ Properties ]");
@@ -198,6 +210,32 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     println!("  Tiers             | total:   {}", eaf.t_len());
     println!("  Annotations       | total:   {}", eaf.a_len());
     println!("  Annotations/tier  | average: {:.2}", eaf.t_avr_len());
+    let first_a = eaf.first_annotation();
+    if let Some(a1) = first_a {
+        print!("  First annotation  | ");
+        let val = a1.value().to_string();
+        let (ts1, ts2) = a1.ts_val();
+        let tier = a1.tier_id().unwrap_or("<Tier not set>".to_owned());
+        println!("value:   {val}");
+        println!("                    | time:    {} - {} ms",
+            ts1.map(|t| t.to_string()).unwrap_or("<Timeslot not set>".to_owned()),
+            ts2.map(|t| t.to_string()).unwrap_or("<Timeslot not set>".to_owned())
+        );
+        println!("                    | tier:    {tier}");
+    }
+    let last_a = eaf.last_annotation();
+    if let Some(a2) = last_a {
+        print!("  Last annotation   | ");
+        let val = a2.value().to_string();
+        let (ts1, ts2) = a2.ts_val();
+        let tier = a2.tier_id().unwrap_or("<Tier not set>".to_owned());
+        println!("value:   {val}");
+        println!("                    | time:    {} - {} ms",
+            ts1.map(|t| t.to_string()).unwrap_or("<Timeslot not set>".to_owned()),
+            ts2.map(|t| t.to_string()).unwrap_or("<Timeslot not set>".to_owned())
+        );
+        println!("                    | tier:    {tier}");
+    }
     println!("  Words/tokens      | total:   {}", eaf.tkn_len());
     println!("  Word/token length | average: {:.2}", eaf.tkn_avr_len());
 

@@ -41,7 +41,7 @@ pub fn select_tier(eaf: &Eaf, no_tokenized: bool) -> std::io::Result<Tier> {
             Ok(i) => {
                 match eaf.tiers.get(i-1) {
                     // check if selected tier or any parent tier is tokenized
-                    Some(t) => if eaf.is_tokenized(&t.tier_id, true) && no_tokenized {
+                    Some(t) => if eaf.is_tokenized(&t.tier_id, true)? && no_tokenized {
                         println!("(!) '{}' or one of its parents is tokenized.", t.tier_id);
                     } else {
                         return Ok(t.to_owned())

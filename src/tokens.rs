@@ -42,15 +42,15 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
 
     if let Some(p) = path {
         if Path::new(p).is_dir() {
-            println!("(!) {} is a directory.", p.display());
-            std::process::exit(1)
+            let msg = format!("(!) {} is a directory.", p.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
 
         let eaf = match Eaf::read(p) {
             Ok(f) => f,
             Err(err) => {
-                println!("(!) Failed to parse '{}': {err}", p.display());
-                std::process::exit(1)
+                let msg = format!("(!) Failed to parse '{}': {err}", p.display());
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
 
@@ -58,8 +58,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             let tier = match eaf::select_tier(&eaf, false) {
                 Ok(t) => t,
                 Err(err) => {
-                    println!("(!) Failed to extract tier: {err}");
-                    std::process::exit(1)
+                    let msg = format!("(!) Failed to extract tier: {err}");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                 }
             };
             tokens = tier.tokens(prefix.as_deref(), suffix.as_deref(), unique, ignore_case);

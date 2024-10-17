@@ -21,7 +21,7 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     let eaf_dir = args.get_one::<PathBuf>("dir");
     let ignore_case = *args.get_one::<bool>("ignore-case").unwrap(); // ensured by clap
     let full_path = *args.get_one::<bool>("full-path").unwrap(); // ensured by clap
-    let context = *args.get_one::<bool>("context").unwrap(); // ensured by clap
+    // let context = *args.get_one::<bool>("context").unwrap(); // ensured by clap
     let pattern = args.get_one::<String>("pattern");
     let regex = match args.get_one::<String>("regex") {
         Some(s) => {
@@ -32,8 +32,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             match Regex::new(&p) {
                 Ok(rx) => Some(rx),
                 Err(err) => {
-                    println!("(!) '{s}' is not a valid regular expression: {err}");
-                    std::process::exit(1)
+                    let msg = format!("(!) '{s}' is not a valid regular expression: {err}");
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         }
         },
@@ -46,15 +46,15 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     if let Some(p) = eaf_path {
 
         if Path::new(p).is_dir() {
-            println!("(!) {} is a directory. Try '--dir <DIR>'.", p.display());
-            std::process::exit(1)
+            let msg = format!("(!) {} is a directory. Try '--dir <DIR>'.", p.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
 
         let eaf = match Eaf::read(p) {
             Ok(f) => f,
             Err(err) => {
-                println!("(!) Failed to parse '{}': {err}", p.display());
-                std::process::exit(1)
+                let msg = format!("(!) Failed to parse '{}': {err}", p.display());
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
 
@@ -65,8 +65,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
             _ => {
                 // Should never reach this branch since clap ensures
                 // either 'pattern' or 'regex'.
-                println!("(!) No search pattern provided.");
-                std::process::exit(1)
+                let msg = format!("(!) No search pattern provided.");
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
             }
         };
 
@@ -115,8 +115,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     if let Some(d) = eaf_dir {
 
         if d.is_file() {
-            println!("(!) {} is a file. Try '--eaf'.", d.display());
-            std::process::exit(1)
+            let msg = format!("(!) {} is a file. Try '--eaf'.", d.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
 
         let mut count = 0;
@@ -157,8 +157,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
                         _ => {
                             // Should never reach this branch since clap ensures
                             // either 'pattern' or 'regex'.
-                            println!("(!) No search pattern provided.");
-                            std::process::exit(1)
+                            let msg = format!("(!) No search pattern provided.");
+                            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                         }
                     };
                     matches += results.len();
@@ -175,8 +175,8 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
                         println!("╭─[{}. {}]", count, path_display); // file ensuread 
                         println!("│     Tier          Index / ID       Value");
                         for (i, (a_idx, t_id, a_id, a_val, _a_ref_id)) in results.iter().enumerate() {
-                            let main_val = eaf.main_annotation(a_id).map(|a| a.to_str());
                             if context {
+                                let main_val = eaf.main_annotation(a_id).map(|a| a.to_str());
                                 println!("│{}MAIN   {}",
                                     " ".repeat(29),
                                     if let Some(val) = main_val {val} else {"None"}

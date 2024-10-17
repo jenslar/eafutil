@@ -27,24 +27,24 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
     let eaf = match Eaf::read(eaf_path) {
         Ok(f) => f,
         Err(err) => {
-            println!("(!) Error parsing '{}': {err}", eaf_path.display());
-            std::process::exit(1)
+            let msg = format!("(!) Error parsing '{}': {err}", eaf_path.display());
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
     let tier1 = match select_tier(&eaf, false) {
         Ok(t) => t,
         Err(err) => {
-            println!("(!) Failed to extract tier: {err}");
-            std::process::exit(1)
+            let msg = format!("(!) Failed to extract tier: {err}");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
     let tier2 = match select_tier(&eaf, false) {
         Ok(t) => t,
         Err(err) => {
-            println!("(!) Failed to extract tier: {err}");
-            std::process::exit(1)
+            let msg = format!("(!) Failed to extract tier: {err}");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
         }
     };
 
@@ -57,26 +57,32 @@ pub fn run(args: &clap::ArgMatches) -> std::io::Result<()> {
 
     if timeline {
 
+        // let mut all_annotations: Vec<_> = tier1.iter().chain(tier2.iter())
         let mut all_annotations: Vec<_> = tier1.iter().chain(tier2.iter())
             .map(|a| {
                 let tier_id = match a.tier_id() {
                     Some(id) => id,
                     _ => {
-                        println!("(!) Missing tier ID for annotation with ID '{}'", a.id());
-                        std::process::exit(1)
+                        // println!("(!) Missing tier ID for annotation with ID '{}'", a.id());
+                        // std::process::exit(1)
+                        let msg = format!("(!) Missing tier ID for annotation with ID '{}'", a.id());
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                     }
                 };
                 let (ts1, ts2) = match a.ts_val() {
                     (Some(t1), Some(t2)) => (t1, t2),
                     _ => {
-                        println!("(!) Missing time value for annotation with ID '{}'", a.id());
-                        std::process::exit(1)
+                        // println!("(!) Missing time value for annotation with ID '{}'", a.id());
+                        // std::process::exit(1)
+                        let msg = format!("(!) Missing time value for annotation with ID '{}'", a.id());
+                        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
                     }
                 };
                 // (tier_id, ts1, ts2, a.value())
-                (tier_id, ts1, ts2, a.to_str())
+                Ok((tier_id, ts1, ts2, a.to_str()))
             })
-            .collect();
+            // .collect();
+            .collect::<std::io::Result<Vec<(String, i64, i64, &str)>>>()?;
 
         // Sort annotations on start time value
         all_annotations.sort_by_key(|a| a.1);
